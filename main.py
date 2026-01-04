@@ -9,8 +9,6 @@ This script performs Latent Semantic Analysis on scientific and social science d
 5. Visualize semantic relationships using network graphs
 6. Generate word clouds for topic visualization
 
-Created on Sun Jul 18 12:58:24 2021
-@author: systems
 """
 
 import pandas as pd
@@ -26,24 +24,11 @@ from PIL import Image
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from itertools import combinations
+import config
 
 # Download required NLTK data
 nltk.download('stopwords', quiet=True)
 nltk.download('wordnet', quiet=True)
-
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
-
-# Number of documents to process for each category
-NUMBER_OF_SCIENCE_FILES = 20
-NUMBER_OF_SOCIAL_SCIENCE_FILES = 20
-
-# Number of top words to extract for similarity analysis
-TOP_N_WORDS = 5
-
-# Number of top words per topic for word cloud generation
-TOP_WORDS_PER_TOPIC = 30
 
 # ============================================================================
 # CUSTOM CLASSES
@@ -138,7 +123,7 @@ def preprocess_documents(df, text_column='documents'):
     return pd.Series(detokenized_doc)
 
 
-def load_documents(file_prefix, num_files, skip_first_n_words=4):
+def load_documents(file_prefix, num_files, skip_first_n_words=None):
     """
     Load and process text files, skipping the first N words from each file.
     
@@ -146,10 +131,14 @@ def load_documents(file_prefix, num_files, skip_first_n_words=4):
         file_prefix: Prefix of the file names (e.g., 'science' or 'social-science')
         num_files: Number of files to load
         skip_first_n_words: Number of words to skip from the beginning of each file
+                           (if None, uses config.SKIP_FIRST_N_WORDS)
         
     Returns:
         List of processed document strings
     """
+    if skip_first_n_words is None:
+        skip_first_n_words = config.SKIP_FIRST_N_WORDS
+    
     document_list = []
     
     for i in range(num_files):
@@ -206,9 +195,9 @@ def perform_lsa_and_extract_top_words(df, document_names, num_components, top_n=
     # random_state: seed for reproducibility
     svd_model = TruncatedSVD(
         n_components=num_components,
-        algorithm='randomized',
-        n_iter=100,
-        random_state=122
+        algorithm=config.SVD_ALGORITHM,
+        n_iter=config.SVD_N_ITER,
+        random_state=config.SVD_RANDOM_STATE
     )
     lsa_transformed = svd_model.fit_transform(bag_of_words)
     
@@ -327,17 +316,17 @@ def create_semantic_graph(word_list, similarity_combinations, graph_title="Seman
     pos = nx.circular_layout(graph)
     
     # Scale weights for visualization (thicker edges = higher similarity)
-    edge_weights = [comb['similarity'] * 5 for comb in similarity_combinations]
+    edge_weights = [comb['similarity'] * config.EDGE_WEIGHT_SCALE for comb in similarity_combinations]
     
     # Draw the graph
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=config.GRAPH_FIGURE_SIZE)
     nx.draw(
         graph, pos,
         edge_color='black',
         width=edge_weights,
         linewidths=1,
-        node_size=1500,
-        node_color='lightblue',
+        node_size=config.NODE_SIZE,
+        node_color=config.NODE_COLOR,
         alpha=0.9,
         with_labels=True,
         font_size=10,
@@ -354,7 +343,7 @@ def create_semantic_graph(word_list, similarity_combinations, graph_title="Seman
     nx.draw_networkx_edge_labels(
         graph, pos,
         edge_labels=edge_labels,
-        font_color='red',
+        font_color=config.EDGE_LABEL_COLOR,
         font_size=8
     )
     
@@ -388,21 +377,21 @@ def generate_wordclouds(svd_model, vocabulary, num_topics, file_prefix, top_word
     
     # Try to load custom mask image, otherwise use default shape
     try:
-        custom_mask = np.array(Image.open('cloud.png'))
+        custom_mask = np.array(Image.open(config.WORDCLOUD_MASK_PATH))
         wordcloud = WordCloud(
-            background_color='white',
+            background_color=config.WORDCLOUD_BACKGROUND_COLOR,
             stopwords=stop_words,
             mask=custom_mask,
-            contour_width=3,
-            contour_color='black'
+            contour_width=config.WORDCLOUD_CONTOUR_WIDTH,
+            contour_color=config.WORDCLOUD_CONTOUR_COLOR
         )
     except FileNotFoundError:
-        print("Note: 'cloud.png' not found, using default wordcloud shape.")
+        print(f"Note: '{config.WORDCLOUD_MASK_PATH}' not found, using default wordcloud shape.")
         wordcloud = WordCloud(
-            background_color='white',
+            background_color=config.WORDCLOUD_BACKGROUND_COLOR,
             stopwords=stop_words,
-            width=800,
-            height=400
+            width=config.WORDCLOUD_WIDTH,
+            height=config.WORDCLOUD_HEIGHT
         )
     
     # Generate word cloud for each topic
@@ -423,23 +412,23 @@ print("=" * 70)
 
 # --- PART 1: Load and preprocess science documents ---
 print("\nStep 1: Loading science documents...")
-science_documents = load_documents('science', NUMBER_OF_SCIENCE_FILES)
+science_documents = load_documents(config.SCIENCE_FILE_PREFIX, config.NUMBER_OF_SCIENCE_FILES)
 df_science = pd.DataFrame(science_documents, columns=['documents'])
 
 print("Step 2: Preprocessing science documents...")
 df_science['clean_documents'] = preprocess_documents(df_science)
-science_document_names = [f"Science Documents PC {i+1}" for i in range(NUMBER_OF_SCIENCE_FILES)]
+science_document_names = [f"Science Documents PC {i+1}" for i in range(config.NUMBER_OF_SCIENCE_FILES)]
 
 # --- PART 2: Perform LSA and extract top words ---
 print("Step 3: Performing LSA on science documents...")
 top_words_science_df, science_encoding_matrix, science_vocab, science_svd_model = perform_lsa_and_extract_top_words(
     df_science,
     science_document_names,
-    NUMBER_OF_SCIENCE_FILES,
-    top_n=TOP_N_WORDS
+    config.NUMBER_OF_SCIENCE_FILES,
+    top_n=config.TOP_N_WORDS
 )
 
-print(f"Top {TOP_N_WORDS} science words extracted: {list(top_words_science_df.index)}")
+print(f"Top {config.TOP_N_WORDS} science words extracted: {list(top_words_science_df.index)}")
 
 # --- PART 3: Calculate cosine similarity and create graph ---
 print("Step 4: Calculating cosine similarity between top science words...")
@@ -463,14 +452,14 @@ print("=" * 70)
 
 # --- PART 4: Load and preprocess social science documents ---
 print("\nStep 1: Loading social science documents...")
-social_science_documents = load_documents('social-science', NUMBER_OF_SOCIAL_SCIENCE_FILES)
+social_science_documents = load_documents(config.SOCIAL_SCIENCE_FILE_PREFIX, config.NUMBER_OF_SOCIAL_SCIENCE_FILES)
 df_social_science = pd.DataFrame(social_science_documents, columns=['documents'])
 
 print("Step 2: Preprocessing social science documents...")
 df_social_science['clean_documents'] = preprocess_documents(df_social_science)
 social_science_document_names = [
     f"Social Science Documents PC {i+1}" 
-    for i in range(NUMBER_OF_SOCIAL_SCIENCE_FILES)
+    for i in range(config.NUMBER_OF_SOCIAL_SCIENCE_FILES)
 ]
 
 # --- PART 5: Perform LSA and extract top words ---
@@ -478,11 +467,11 @@ print("Step 3: Performing LSA on social science documents...")
 top_words_social_science_df, social_science_encoding_matrix, social_science_vocab, social_science_svd_model = perform_lsa_and_extract_top_words(
     df_social_science,
     social_science_document_names,
-    NUMBER_OF_SOCIAL_SCIENCE_FILES,
-    top_n=TOP_N_WORDS
+    config.NUMBER_OF_SOCIAL_SCIENCE_FILES,
+    top_n=config.TOP_N_WORDS
 )
 
-print(f"Top {TOP_N_WORDS} social science words extracted: {list(top_words_social_science_df.index)}")
+print(f"Top {config.TOP_N_WORDS} social science words extracted: {list(top_words_social_science_df.index)}")
 
 # --- PART 6: Calculate cosine similarity and create graph ---
 print("Step 4: Calculating cosine similarity between top social science words...")
@@ -508,18 +497,18 @@ print("\nGenerating word clouds for science topics...")
 generate_wordclouds(
     science_svd_model,
     science_vocab,
-    NUMBER_OF_SCIENCE_FILES,
-    'science',
-    top_words_per_topic=TOP_WORDS_PER_TOPIC
+    config.NUMBER_OF_SCIENCE_FILES,
+    config.SCIENCE_WORDCLOUD_PREFIX,
+    top_words_per_topic=config.TOP_WORDS_PER_TOPIC
 )
 
 print("\nGenerating word clouds for social science topics...")
 generate_wordclouds(
     social_science_svd_model,
     social_science_vocab,
-    NUMBER_OF_SOCIAL_SCIENCE_FILES,
-    'social-science',
-    top_words_per_topic=TOP_WORDS_PER_TOPIC
+    config.NUMBER_OF_SOCIAL_SCIENCE_FILES,
+    config.SOCIAL_SCIENCE_WORDCLOUD_PREFIX,
+    top_words_per_topic=config.TOP_WORDS_PER_TOPIC
 )
 
 print("\n" + "=" * 70)
